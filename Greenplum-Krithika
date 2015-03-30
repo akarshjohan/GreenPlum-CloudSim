@@ -1,0 +1,257 @@
+/*
+ * Title:        CloudSim Toolkit
+ * Description:  CloudSim (Cloud Simulation) Toolkit for Modeling and Simulation
+ *               of Clouds
+ * Licence:      GPL - http://www.gnu.org/copyleft/gpl.html
+ *
+ * Copyright (c) 2009, The University of Melbourne, Australia
+ */
+
+//package org.cloudbus.cloudsim.examples;
+
+
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.text.DecimalFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.LinkedList;
+import java.util.List;
+
+import org.cloudbus.cloudsim.Cloudlet;
+import org.cloudbus.cloudsim.CloudletSchedulerTimeShared;
+import org.cloudbus.cloudsim.Datacenter;
+import org.cloudbus.cloudsim.DatacenterBroker;
+import org.cloudbus.cloudsim.DatacenterCharacteristics;
+import org.cloudbus.cloudsim.Host;
+import org.cloudbus.cloudsim.Log;
+import org.cloudbus.cloudsim.Pe;
+import org.cloudbus.cloudsim.Storage;
+import org.cloudbus.cloudsim.UtilizationModel;
+import org.cloudbus.cloudsim.UtilizationModelFull;
+import org.cloudbus.cloudsim.Vm;
+import org.cloudbus.cloudsim.VmAllocationPolicySimple;
+import org.cloudbus.cloudsim.VmSchedulerTimeShared;
+import org.cloudbus.cloudsim.core.CloudSim;
+import org.cloudbus.cloudsim.provisioners.BwProvisionerSimple;
+import org.cloudbus.cloudsim.provisioners.PeProvisionerSimple;
+import org.cloudbus.cloudsim.provisioners.RamProvisionerSimple;
+
+
+
+public class GreenPlum{
+	
+	private static final String FILENAME1 ="C:\\GP_input\\Vm";
+	private static final String FILENAME2 ="C:\\GP_input\\cloudlet";
+	private static final String hostFile ="C:\\GP_input\\Host";
+	
+	private static List<Cloudlet> taskList;
+	private static List<Vm> segInstlist;	
+
+	public static void main(String[] args) {
+
+		Log.printLine("Starting GreenPlumWorkLoadmanagement");
+		
+
+	        try {
+	        	
+	            	int num_user = 1;   // number of cloud users
+	            	Calendar calendar = Calendar.getInstance();
+	            	boolean trace_flag = false;  // mean trace events
+
+ 	            	
+	            	CloudSim.init(num_user, calendar, trace_flag);
+
+	            	
+	            	@SuppressWarnings("unused")
+					Datacenter datacenter0 = createDatacenter("Datacenter_0");
+
+	            	DatacenterBroker broker = createBroker();
+	            	int brokerId = broker.getId();
+
+	            		            	
+	            	segInstlist = new ArrayList<Vm>();
+
+	            	try {
+	        			CsvReader csv = new CsvReader(FILENAME1+".CSV");
+	        			csv.readHeaders();	       		
+	        		
+	        			while (csv.readRecord())
+	        			{
+	        				
+	        				int segInstid = Integer.parseInt(csv.get("vmid"));
+	                    	int mips = Integer.parseInt(csv.get("mips"));
+	                    	long size = Integer.parseInt(csv.get("size"));
+	                    	int ram = Integer.parseInt(csv.get("ram"));
+	                    	long bw = Integer.parseInt(csv.get("bw"));
+	                    	int pesNumber = Integer.parseInt(csv.get("pesNumber"));;
+	                    	String vmm = csv.get("vmm");
+	                    	segInstlist.add(new Vm(segInstid, brokerId, mips, pesNumber, ram, bw, size, vmm, new CloudletSchedulerTimeShared()));
+	        				
+	        			}
+	        			csv.close();
+	        		} 
+	        		catch (FileNotFoundException ex) {ex.printStackTrace();}
+	        		catch (IOException ex) {ex.printStackTrace();}        	
+	            	
+	            
+	            	broker.submitVmList(segInstlist);
+	        
+	            	
+	            	taskList = new ArrayList<Cloudlet>();
+
+	            
+	            	ArrayList<Integer> ctoVM= new ArrayList<Integer>();
+	            	
+	            	UtilizationModel utilizationModel = new UtilizationModelFull();
+	            	try {
+	        			CsvReader csv = new CsvReader(FILENAME2+".CSV");
+	        			csv.readHeaders();		
+	        			
+	        		
+	        			while (csv.readRecord())
+	        			{
+	        				
+	        				int id = Integer.parseInt(csv.get("id"));
+	        				int pesNumber = Integer.parseInt(csv.get("pesNumber"));
+	                    	
+	                    	long length = Integer.parseInt(csv.get("length"));
+	                    	int fileSize = Integer.parseInt(csv.get("fileSize"));
+	                    	long outputSize = Integer.parseInt(csv.get("outputSize"));	
+	                    	int cloudletToVM=Integer.parseInt(csv.get("cloudletToVM"));
+	                    	int lag=Integer.parseInt(csv.get("lag"));
+	                    	ctoVM.add(cloudletToVM);
+	                    	Cloudlet task=new Cloudlet(id, length, pesNumber, fileSize, outputSize, utilizationModel, utilizationModel, utilizationModel);
+	                    	taskList.add(task);
+	                    	task.setExecStartTime(lag);
+	                    	task.setUserId(brokerId);
+	        			}
+	        			csv.close();
+	        		} 
+	        		catch (FileNotFoundException ex) {ex.printStackTrace();}
+	        		catch (IOException ex) {ex.printStackTrace();}
+	            
+	            	broker.submitCloudletList(taskList);
+
+
+	            	try{
+	            		for(Cloudlet e:taskList)
+	            		{
+	            			broker.bindCloudletToVm(e.getCloudletId(),ctoVM.get(e.getCloudletId()));
+	            		}
+	            		
+	            	}catch(IndexOutOfBoundsException e){} ;
+	            
+	            	CloudSim.startSimulation();
+	            	List<Cloudlet> newList = broker.getCloudletReceivedList();
+
+	            	CloudSim.stopSimulation();
+
+	            	printCloudletList(newList);
+
+	            	Log.printLine("GREENPLUM WORKLOAD MANAGEMENT finished!");
+	        }
+	       
+	        	catch(NullPointerException b){
+	            b.printStackTrace();
+	            Log.printLine("The simulation has been terminated due to an unexpected error");
+	        }
+	    }
+
+		private static Datacenter createDatacenter(String name){
+
+	      
+	    	List<Host> seghostList = new ArrayList<Host>();
+
+	    	List<Pe> peList = new ArrayList<Pe>();	       
+	        try {
+    			CsvReader csv = new CsvReader(hostFile+".CSV");
+    			csv.readHeaders();		
+    			
+    		
+    			while (csv.readRecord())
+    			{
+    				
+    				int seghostId = Integer.parseInt(csv.get("hostId"));
+    				int ram=Integer.parseInt(csv.get("ram"));
+                	
+                	long storage = Integer.parseInt(csv.get("storage"));
+                	int bw = Integer.parseInt(csv.get("bw"));
+                	int mips=Integer.parseInt(csv.get("mips"));
+                	int pes_No=Integer.parseInt(csv.get("pes_No"));
+                	for(int i=0;i<pes_No;i++)
+                	peList.add(new Pe(i, new PeProvisionerSimple(mips))); 
+                	 seghostList.add(new Host(seghostId,new RamProvisionerSimple(ram),new BwProvisionerSimple(bw),
+         	    				storage,
+         	    				peList,
+         	    				new VmSchedulerTimeShared(peList)));
+         	    			
+                	
+    			}
+    			csv.close();
+    		}	catch (FileNotFoundException ex) {ex.printStackTrace();}
+    		catch (IOException ex) {ex.printStackTrace();} 	          
+
+	       
+	        String arch = "x86";     
+	        String os = "Linux";         
+	        String vmm = "Xen";
+	        double time_zone = 10.0;         
+	        double cost = 3.0;              
+	        double costPerMem = 0.05;		
+	        double costPerStorage = 0.001;	
+	        double costPerBw = 0.0;	
+	        LinkedList<Storage> storageList = new LinkedList<Storage>();	//we are not adding SAN devices by now
+
+	        DatacenterCharacteristics characteristics = new DatacenterCharacteristics(
+	                arch, os, vmm, seghostList, time_zone, cost, costPerMem, costPerStorage, costPerBw);
+
+	        Datacenter datacenter = null;
+	        try {
+	            datacenter = new Datacenter(name, characteristics, new VmAllocationPolicySimple(seghostList), storageList, 0);
+	        } catch (Exception e) {
+	            e.printStackTrace();
+	        }
+
+	        return datacenter;
+	    }
+
+	    private static DatacenterBroker createBroker(){
+
+	    	DatacenterBroker broker = null;
+	        try {
+			broker = new DatacenterBroker("Broker");
+		} catch (Exception e) {
+			e.printStackTrace();
+			return null;
+		}
+	    	return broker;
+	    }
+
+	   
+	    private static void printCloudletList(List<Cloudlet> list) {
+	        int size = list.size();
+	        Cloudlet task;
+
+	        String indent = "    ";
+	        Log.printLine();
+	        Log.printLine("========== OUTPUT ==========");
+	        Log.printLine("Cloudlet ID" + indent + "STATUS" + indent +
+	                "Data center ID" + indent + "VM ID" + indent + "Time" + indent + "Start Time" + indent + "Finish Time");
+
+	        DecimalFormat dft = new DecimalFormat("###.##");
+	        for (int i = 0; i < size; i++) {
+	            task = list.get(i);
+	            Log.print(indent + task.getCloudletId() + indent + indent);
+
+	            if (task.getCloudletStatus() == Cloudlet.SUCCESS){
+	                Log.print("SUCCESS");
+
+	            	Log.printLine( indent + indent + task.getResourceId() + indent + indent + indent + task.getVmId() +
+	                     indent + indent + dft.format(task.getActualCPUTime()) + indent + indent + dft.format(task.getExecStartTime())+
+                             indent + indent + dft.format(task.getFinishTime()));
+	            }
+	        }
+
+	    }
+}
